@@ -2,3 +2,4 @@
 ai-va/
 agent.py
 user_speech_log.txt
+speech_log.json
