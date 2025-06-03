@@ -1,6 +1,8 @@
 import logging
 import os
 import datetime
+import json
+import uuid
 from dotenv import load_dotenv
 from livekit.agents import JobContext, WorkerOptions, cli
 from livekit.agents.llm import function_tool
@@ -10,14 +12,41 @@ from livekit.plugins import azure, openai, silero
 logger = logging.getLogger("function-calling")
 logger.setLevel(logging.INFO)
 
-# Load environment variables from .env file
 load_dotenv()
 
+SESSION_ID = str(uuid.uuid4())
+LOG_FILE = "speech_log.json"
+
+# JSON logger function (single file with session ID)
+def log_speech_json(speaker: str, text: str):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    entry = {
+        "timestamp": timestamp,
+        "session_id": SESSION_ID,
+        "speaker": speaker.lower(),
+        "text": text
+    }
+
+    # Load existing or create new
+    try:
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = []
+
+    data.append(entry)
+
+    with open(LOG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+# Voice Agent
 class FunctionAgent(Agent):
     def __init__(self) -> None:
         super().__init__(
             instructions="""
-                You are a helpful assistant communicating through voice. Don't use any unpronounceable characters.
+                You are a helpful assistant communicating through voice. 
+                Don't use any unpronounceable characters.
                 Note: If asked to print to the console, use the `print_to_console` function.
             """,
             stt=openai.STT.with_azure(
@@ -49,17 +78,19 @@ class FunctionAgent(Agent):
     async def on_enter(self):
         await self.session.generate_reply()
 
+    async def on_response(self, response: str):
+        log_speech_json("assistant", response)
+        return await super().on_response(response)
+
+
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
     session = AgentSession()
 
-    # Transcription logging
     @session.on("user_input_transcribed")
     def on_transcript(transcript):
         if transcript.is_final:
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            with open("user_speech_log.txt", "a", encoding="utf-8") as f:
-                f.write(f"[{timestamp}] {transcript.transcript}\n")
+            log_speech_json("user", transcript.transcript)
 
     await session.start(
         agent=FunctionAgent(),
