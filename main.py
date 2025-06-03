@@ -15,10 +15,10 @@ logger.setLevel(logging.INFO)
 load_dotenv()
 
 SESSION_ID = str(uuid.uuid4())
-SESSION_START_TIME = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+SESSION_START_TIME = datetime.datetime.now()
 LOG_FILE = "speech_log.json"
 
-# Initialize or update session record
+
 def initialize_session():
     try:
         with open(LOG_FILE, "r", encoding="utf-8") as f:
@@ -26,26 +26,43 @@ def initialize_session():
     except (FileNotFoundError, json.JSONDecodeError):
         data = []
 
-    # Check if session exists already
     session_entry = next((s for s in data if s["session_id"] == SESSION_ID), None)
 
     if not session_entry:
         session_entry = {
             "session_id": SESSION_ID,
-            "session_start_time": SESSION_START_TIME,
-            "logs": []
+            "session_start_time": SESSION_START_TIME.isoformat(),
+            "logs": [],
+            "duration_seconds": 0
         }
         data.append(session_entry)
-
         with open(LOG_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
     return data
 
 
-# Log user/assistant message
+def update_session_duration(data):
+    session = next((s for s in data if s["session_id"] == SESSION_ID), None)
+    if not session or not session["logs"]:
+        return
+
+    # Get session start datetime
+    start_time = datetime.datetime.fromisoformat(session["session_start_time"])
+
+    # Get latest log timestamp
+    latest_timestamp_str = session["logs"][-1]["timestamp"]
+    latest_timestamp = datetime.datetime.fromisoformat(latest_timestamp_str)
+
+    # Calculate duration in seconds
+    duration = (latest_timestamp - start_time).total_seconds()
+
+    # Update duration_seconds field
+    session["duration_seconds"] = max(0, int(duration))
+
+
 def log_speech_json(speaker: str, text: str):
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.datetime.now().isoformat()
     entry = {
         "timestamp": timestamp,
         "speaker": speaker.lower(),
@@ -54,17 +71,17 @@ def log_speech_json(speaker: str, text: str):
 
     data = initialize_session()
 
-    # Append log to the correct session
     for session in data:
         if session["session_id"] == SESSION_ID:
             session["logs"].append(entry)
             break
 
+    update_session_duration(data)
+
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-# Voice Agent
 class FunctionAgent(Agent):
     def __init__(self) -> None:
         super().__init__(
@@ -107,7 +124,6 @@ class FunctionAgent(Agent):
         return await super().on_response(response)
 
 
-# Session entrypoint
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
     session = AgentSession()
@@ -125,6 +141,5 @@ async def entrypoint(ctx: JobContext):
     )
 
 
-# Run app
 if __name__ == "__main__":
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
