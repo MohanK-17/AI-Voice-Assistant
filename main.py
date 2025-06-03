@@ -1,5 +1,6 @@
 import logging
 import os
+import datetime
 from dotenv import load_dotenv
 from livekit.agents import JobContext, WorkerOptions, cli
 from livekit.agents.llm import function_tool
@@ -50,8 +51,15 @@ class FunctionAgent(Agent):
 
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
-
     session = AgentSession()
+
+    # Transcription logging
+    @session.on("user_input_transcribed")
+    def on_transcript(transcript):
+        if transcript.is_final:
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open("user_speech_log.txt", "a", encoding="utf-8") as f:
+                f.write(f"[{timestamp}] {transcript.transcript}\n")
 
     await session.start(
         agent=FunctionAgent(),
