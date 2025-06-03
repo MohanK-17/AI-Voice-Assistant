@@ -15,26 +15,50 @@ logger.setLevel(logging.INFO)
 load_dotenv()
 
 SESSION_ID = str(uuid.uuid4())
+SESSION_START_TIME = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 LOG_FILE = "speech_log.json"
 
-# JSON logger function (single file with session ID)
-def log_speech_json(speaker: str, text: str):
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    entry = {
-        "timestamp": timestamp,
-        "session_id": SESSION_ID,
-        "speaker": speaker.lower(),
-        "text": text
-    }
-
-    # Load existing or create new
+# Initialize or update session record
+def initialize_session():
     try:
         with open(LOG_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         data = []
 
-    data.append(entry)
+    # Check if session exists already
+    session_entry = next((s for s in data if s["session_id"] == SESSION_ID), None)
+
+    if not session_entry:
+        session_entry = {
+            "session_id": SESSION_ID,
+            "session_start_time": SESSION_START_TIME,
+            "logs": []
+        }
+        data.append(session_entry)
+
+        with open(LOG_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+    return data
+
+
+# Log user/assistant message
+def log_speech_json(speaker: str, text: str):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    entry = {
+        "timestamp": timestamp,
+        "speaker": speaker.lower(),
+        "text": text
+    }
+
+    data = initialize_session()
+
+    # Append log to the correct session
+    for session in data:
+        if session["session_id"] == SESSION_ID:
+            session["logs"].append(entry)
+            break
 
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
@@ -83,6 +107,7 @@ class FunctionAgent(Agent):
         return await super().on_response(response)
 
 
+# Session entrypoint
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
     session = AgentSession()
@@ -92,10 +117,14 @@ async def entrypoint(ctx: JobContext):
         if transcript.is_final:
             log_speech_json("user", transcript.transcript)
 
+    initialize_session()
+
     await session.start(
         agent=FunctionAgent(),
         room=ctx.room
     )
 
+
+# Run app
 if __name__ == "__main__":
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
