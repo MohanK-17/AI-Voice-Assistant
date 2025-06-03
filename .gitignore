@@ -1,2 +1,4 @@
 .env
 ai-va/
+agent.py
+user_speech_log.txt
