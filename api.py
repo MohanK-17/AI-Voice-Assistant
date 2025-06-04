@@ -26,3 +26,9 @@ def store_session_to_mongodb():
 
     result = collection.insert_many(sessions)
     return {"status": "success", "inserted_ids": [str(_id) for _id in result.inserted_ids]}
+
+
+@app.get("/")
+def home():
+    return {"message": "FastAPI is running. Use POST /store-session to store logs."}
+
